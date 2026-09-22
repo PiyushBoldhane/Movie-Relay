@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>MovieRelay</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+
+        <!-- Top bar: search -->
+        <header class="topbar">
+            <div class="topbar-inner">
+                <button id="backBtn" class="icon-btn hidden" aria-label="Back">
+                    <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div class="search-box-wrap">
+                    <form id="searchForm" class="search-box">
+                        <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                        <input id="searchInput" type="text" placeholder="Search a movie or show..." autocomplete="off" />
+                    </form>
+                    <div id="searchSuggestions" class="search-suggestions hidden"></div>
+                </div>
+                <button id="libraryBtn" class="icon-btn" aria-label="Library">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <div id="connectionBanner" class="connection-banner hidden">
+            <div class="spinner tiny"></div>
+            <span id="connectionBannerText">Reconnecting to Telegram...</span>
+        </div>
+
+        <main id="main">
+
+            <!-- Inline player (docked at the top of the page, YouTube-style) - lives outside
+                 the recent/results/library sections so it stays visible no matter which of
+                 those views is currently active. -->
+            <div id="playerDock" class="player-dock hidden">
+                <div class="player-video-wrap">
+                    <video id="videoEl" playsinline></video>
+
+                    <!-- Shown only while minimized: tap anywhere on the mini box to restore,
+                         except its own close button. -->
+                    <div id="minimizedOverlay" class="minimized-overlay">
+                        <span id="minimizedTitle" class="minimized-title"></span>
+                        <button id="minimizedCloseBtn" class="icon-btn minimized-close" aria-label="Close">
+                            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                        </button>
+                    </div>
+
+                    <!-- Tap zones: single tap toggles controls (left/right) or play/pause
+                         (center), double-tap on left/right seeks +-10s, and a vertical drag on
+                         left/right adjusts brightness/volume respectively. -->
+                    <div id="gestureLeft" class="gesture-zone gesture-left"></div>
+                    <div id="gestureCenter" class="gesture-zone gesture-center"></div>
+                    <div id="gestureRight" class="gesture-zone gesture-right"></div>
+
+                    <!-- Feedback shown while dragging (brightness/volume) or after a double-tap
+                         seek - center for seek, side-specific for brightness/volume. -->
+                    <div id="gestureIndicator" class="gesture-indicator hidden">
+                        <svg id="gestureIcon" viewBox="0 0 24 24" class="gesture-icon"></svg>
+                        <span id="gestureValue" class="gesture-value"></span>
+                        <div class="gesture-bar-track"><div id="gestureBarFill" class="gesture-bar-fill"></div></div>
+                    </div>
+                    <div id="seekIndicatorLeft" class="seek-indicator seek-indicator-left hidden">
+                        <svg viewBox="0 0 24 24"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span>10s</span>
+                    </div>
+                    <div id="seekIndicatorRight" class="seek-indicator seek-indicator-right hidden">
+                        <span>10s</span>
+                        <svg viewBox="0 0 24 24"><path d="M6 17l5-5-5-5M13 17l5-5-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </div>
+
+                    <!-- Lock overlay -->
+                    <div id="lockOverlay" class="lock-overlay hidden">
+                        <button id="unlockBtn" class="icon-btn lock-icon-btn" aria-label="Unlock">
+                            <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 018 0v4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                        </button>
+                    </div>
+
+                    <!-- Controls -->
+                    <div id="playerControls" class="player-controls">
+                        <div class="player-top-row">
+                            <button id="minimizePlayerBtn" class="icon-btn" aria-label="Minimize">
+                                <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <span id="playerTitle" class="player-title"></span>
+                            <div class="subtitle-menu-wrap hidden" id="audioMenuWrap">
+                                <button id="audioBtn" class="icon-btn" aria-label="Audio track">
+                                    <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/><path d="M16 9a4 4 0 010 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                </button>
+                                <div id="audioMenu" class="dropdown-menu hidden"></div>
+                            </div>
+                            <div class="subtitle-menu-wrap hidden" id="subtitleMenuWrap">
+                                <button id="subtitleBtn" class="icon-btn" aria-label="Subtitles">
+                                    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 14h3M12 14h5M7 10h1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                </button>
+                                <div id="subtitleMenu" class="dropdown-menu hidden"></div>
+                            </div>
+                            <button id="closePlayerBtn" class="icon-btn" aria-label="Close">
+                                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                            </button>
+                        </div>
+
+                        <button id="lockBtn" class="icon-btn lock-side-btn" aria-label="Lock screen">
+                            <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 018 0v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                        </button>
+
+                        <div class="player-center-row">
+                            <div id="bufferingSpinner" class="spinner small hidden"></div>
+                            <button id="centerPlayPauseBtn" class="center-play-btn" aria-label="Play/Pause">
+                                <svg id="centerPlayIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+                                <svg id="centerPauseIcon" viewBox="0 0 24 24" class="hidden"><rect x="6" y="5" width="4" height="14" fill="currentColor"/><rect x="14" y="5" width="4" height="14" fill="currentColor"/></svg>
+                            </button>
+                        </div>
+
+                        <div class="player-bottom-row">
+                            <span id="timeCurrent" class="time-label">0:00</span>
+                            <input id="seekBar" type="range" min="0" max="100" value="0" step="0.1" class="seek-bar" />
+                            <span id="timeDuration" class="time-label">0:00</span>
+                            <div class="subtitle-menu-wrap" id="speedMenuWrap">
+                                <button id="speedBtn" class="icon-btn speed-btn" aria-label="Playback speed">1x</button>
+                                <div id="speedMenu" class="dropdown-menu speed-dropdown-menu hidden"></div>
+                            </div>
+                            <button id="fullscreenBtn" class="icon-btn" aria-label="Fullscreen">
+                                <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3m10 0h3a2 2 0 002-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Home (default state): Continue Watching only -->
+            <section id="homeSection" class="section">
+                <div id="continueSection" class="section hidden">
+                    <div class="section-head">
+                        <h2>Continue Watching</h2>
+                    </div>
+                    <div id="continueRow" class="poster-row"></div>
+                </div>
+                <div id="homeEmpty" class="empty-state hidden">
+                    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+                    <p>Nothing to continue yet</p>
+                    <span>Search for a movie or show to get started</span>
+                </div>
+            </section>
+
+            <!-- Search tab (shown while the search box is focused/active): Recent only -->
+            <section id="recentSection" class="section hidden">
+                <div class="section-head">
+                    <h2>Recent</h2>
+                    <button id="clearRecentBtn" class="text-btn">Clear</button>
+                </div>
+                <div id="recentChips" class="chip-row"></div>
+                <div id="recentEmpty" class="empty-state">
+                    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    <p>No recent searches</p>
+                    <span>Search for a movie or show to get started</span>
+                </div>
+            </section>
+
+            <!-- Search results -->
+            <section id="resultsSection" class="section hidden">
+                <div id="resultsHeader" class="results-header hidden">
+                    <img id="resultsPoster" class="results-poster hidden" alt="" />
+                    <div class="bot-title-banner" id="botTitleBanner"></div>
+                </div>
+                <div id="backgroundLoadIndicator" class="background-load-indicator hidden">
+                    <div class="spinner tiny"></div>
+                    <span id="backgroundLoadText">Loading more episodes...</span>
+                </div>
+                <div id="resultsList" class="result-list"></div>
+                <div id="paginationRow" class="pagination-row hidden">
+                    <button id="prevPageBtn" class="pill-btn hidden">⏪ Previous</button>
+                    <span id="pageIndicator" class="page-indicator"></span>
+                    <button id="nextPageBtn" class="pill-btn hidden">Next ⏩</button>
+                </div>
+            </section>
+
+            <!-- Library -->
+            <section id="librarySection" class="section hidden">
+                <div class="section-head">
+                    <h2>My Library</h2>
+                </div>
+                <div id="storageInfo" class="storage-info hidden">
+                    <div class="storage-bar-track"><div id="storageBarFill" class="storage-bar-fill"></div></div>
+                    <div class="storage-labels">
+                        <span id="storageUsedLabel"></span>
+                        <span id="storageFreeLabel"></span>
+                    </div>
+                </div>
+
+                <div id="libraryToolbar" class="library-toolbar hidden">
+                    <div class="library-search-box">
+                        <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                        <input id="librarySearchInput" type="text" placeholder="Search your library..." autocomplete="off" />
+                    </div>
+                    <div class="library-toolbar-row">
+                        <div class="filter-tabs" id="libraryStatusTabs">
+                            <button class="filter-tab active" data-filter="all">All</button>
+                            <button class="filter-tab" data-filter="downloading">Downloading</button>
+                            <button class="filter-tab" data-filter="completed">Ready</button>
+                        </div>
+                        <div class="menu-wrap" id="librarySortWrap">
+                            <button id="librarySortBtn" class="pill-btn">Sort: Newest ▾</button>
+                            <div id="librarySortMenu" class="dropdown-menu hidden"></div>
+                        </div>
+                    </div>
+
+                    <div id="libraryBulkActions" class="library-bulk-actions hidden">
+                        <button id="pauseAllBtn" class="text-btn hidden">Pause all downloads</button>
+                        <button id="resumeAllBtn" class="text-btn hidden">Resume all paused</button>
+                    </div>
+                </div>
+
+                <div id="libraryList" class="result-list"></div>
+                <div id="libraryEmpty" class="empty-state hidden">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 20h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    <p>Nothing downloaded yet</p>
+                    <span>Files you download will show up here</span>
+                </div>
+                <div id="libraryNoMatches" class="empty-state hidden">
+                    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    <p>No matches</p>
+                    <span>Try a different search or filter</span>
+                </div>
+            </section>
+
+            <!-- Loading state -->
+            <div id="loadingOverlay" class="loading-overlay hidden">
+                <div class="spinner"></div>
+                <p id="loadingText">Searching...</p>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
