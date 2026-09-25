@@ -94,11 +94,22 @@ public class TmdbService {
                 return QueryResult.success(null);
             }
 
-            // Prefer a result matching the year we parsed (if any), otherwise take the
-            // top-ranked result as-is - TMDB already orders by relevance/popularity.
-            MultiSearchResult best = year != null
-                    ? results.stream().filter(r -> matchesYear(r, year)).findFirst().orElse(results.get(0))
-                    : results.get(0);
+            // Prefer a result matching the year we parsed (if any). Without a year to
+            // disambiguate, TMDB's own relevance ranking can put an obscure old title ahead of
+            // the actual match (e.g. a 1937 film named identically to a popular 2025 show), so
+            // fall back to the most popular result that actually has a poster, rather than
+            // blindly trusting whatever's first - a match with no poster is useless to us
+            // anyway, so skip it in favor of one that has one.
+            MultiSearchResult best = null;
+            if (year != null) {
+                best = results.stream().filter(r -> matchesYear(r, year)).findFirst().orElse(null);
+            }
+            if (best == null) {
+                best = results.stream()
+                        .filter(r -> r.posterPath != null && !r.posterPath.isBlank())
+                        .max((a, b) -> Double.compare(a.popularity, b.popularity))
+                        .orElse(results.get(0));
+            }
 
             if (best.posterPath == null || best.posterPath.isBlank()) {
                 return QueryResult.success(null);
@@ -130,5 +141,6 @@ public class TmdbService {
         public String releaseDate;
         @JsonProperty("first_air_date")
         public String firstAirDate;
+        public double popularity;
     }
 }

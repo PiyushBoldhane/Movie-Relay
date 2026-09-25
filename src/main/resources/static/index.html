@@ -42,12 +42,17 @@
                 <div class="player-video-wrap">
                     <video id="videoEl" playsinline></video>
 
-                    <!-- Shown only while minimized: tap anywhere on the mini box to restore,
-                         except its own close button. -->
+                    <!-- Shown only while minimized: the box can be dragged anywhere on screen;
+                         tap the center maximize button to restore, or the close button to stop. -->
                     <div id="minimizedOverlay" class="minimized-overlay">
-                        <span id="minimizedTitle" class="minimized-title"></span>
-                        <button id="minimizedCloseBtn" class="icon-btn minimized-close" aria-label="Close">
-                            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                        <div class="minimized-top-row">
+                            <span id="minimizedTitle" class="minimized-title"></span>
+                            <button id="minimizedCloseBtn" class="icon-btn minimized-close" aria-label="Close">
+                                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                            </button>
+                        </div>
+                        <button id="minimizedMaximizeBtn" class="minimized-maximize-btn" aria-label="Maximize">
+                            <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3m10 0h3a2 2 0 002-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                         </button>
                     </div>
 
@@ -240,6 +245,17 @@
 
     <!-- Toast -->
     <div id="toast" class="toast hidden"></div>
+
+    <!-- Confirmation dialog (destructive actions: delete, cancel download) -->
+    <div id="confirmOverlay" class="confirm-overlay hidden">
+        <div class="confirm-box">
+            <p id="confirmMessage" class="confirm-message"></p>
+            <div class="confirm-actions">
+                <button id="confirmCancelBtn" class="confirm-btn confirm-btn-cancel">Cancel</button>
+                <button id="confirmOkBtn" class="confirm-btn confirm-btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

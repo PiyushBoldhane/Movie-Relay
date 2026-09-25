@@ -61,6 +61,12 @@
         libraryQuery: '',
         libraryStatusFilter: 'all',
         librarySort: 'newest',
+        // Bumped by showView() on every navigation (including a search kicking one off) and
+        // captured by runSearch/clickButton before their async work starts - if it's changed by
+        // the time a search/click resolves, the user has since navigated elsewhere on their own,
+        // so the stale response should update its data quietly rather than yanking them back to
+        // a view they intentionally left (see runSearch/clickButton).
+        navToken: 0,
     };
 
     const MAX_BACKGROUND_PAGES = 25; // safety cap so a search with many pages doesn't run forever
@@ -112,9 +118,14 @@
     const loadingOverlay = el('loadingOverlay');
     const loadingText = el('loadingText');
     const toast = el('toast');
+    const confirmOverlay = el('confirmOverlay');
+    const confirmMessage = el('confirmMessage');
+    const confirmCancelBtn = el('confirmCancelBtn');
+    const confirmOkBtn = el('confirmOkBtn');
 
     // ---------- View management ----------
     function showView(view) {
+        state.navToken++;
         homeSection.classList.toggle('hidden', view !== 'home');
         recentSection.classList.toggle('hidden', view !== 'recent');
         resultsSection.classList.toggle('hidden', view !== 'results');
@@ -136,6 +147,32 @@
         toast.classList.remove('hidden');
         clearTimeout(showToast._t);
         showToast._t = setTimeout(() => toast.classList.add('hidden'), 3500);
+    }
+
+    // Shows a confirmation dialog for a destructive action (delete, cancel a download) and
+    // resolves true/false based on the user's choice. confirmLabel lets the button say "Delete"
+    // vs "Cancel Download" etc. instead of always a generic "Confirm".
+    function confirmAction(message, confirmLabel) {
+        confirmMessage.textContent = message;
+        confirmOkBtn.textContent = confirmLabel || 'Confirm';
+        confirmOverlay.classList.remove('hidden');
+
+        return new Promise((resolve) => {
+            const cleanup = (result) => {
+                confirmOverlay.classList.add('hidden');
+                confirmOkBtn.removeEventListener('click', onOk);
+                confirmCancelBtn.removeEventListener('click', onCancel);
+                confirmOverlay.removeEventListener('click', onOverlayClick);
+                resolve(result);
+            };
+            const onOk = () => cleanup(true);
+            const onCancel = () => cleanup(false);
+            const onOverlayClick = (e) => { if (e.target === confirmOverlay) cleanup(false); };
+
+            confirmOkBtn.addEventListener('click', onOk);
+            confirmCancelBtn.addEventListener('click', onCancel);
+            confirmOverlay.addEventListener('click', onOverlayClick);
+        });
     }
 
     // ---------- Recent searches ----------
@@ -260,15 +297,24 @@
         searchInput.value = query;
         searchSuggestions.classList.add('hidden');
         showView('results');
+        const myNavToken = state.navToken; // showView() above just set this - capture it as "mine"
         showLoading('Searching...');
         try {
             const reply = await API.search(query);
             state.lastQuery = query;
             addRecent(query);
-            renderBotReply(reply, true);
+            // If the user has since navigated elsewhere on their own (e.g. checked Library
+            // while this was in flight), don't yank them back to Results - just update the
+            // underlying state quietly so it's ready if/when they do come back to it.
+            const stillCurrent = state.navToken === myNavToken;
+            renderBotReply(reply, true, stillCurrent);
         } catch (e) {
-            showToast(e.message, true);
-            showView('home');
+            if (state.navToken === myNavToken) {
+                showToast(e.message, true);
+                showView('home');
+            }
+            // else: the user already moved on - a failed search for a screen they left isn't
+            // worth interrupting them with an error toast for.
         } finally {
             hideLoading();
         }
@@ -284,6 +330,7 @@
     // same file again in a freshly re-run search rather than just failing.
     async function clickButton(messageId, callbackDataB64, label, originalBtn) {
         showLoading(label ? `Opening "${label}"...` : 'Please wait...');
+        const myNavToken = state.navToken;
         try {
             let reply;
             try {
@@ -298,14 +345,17 @@
                     throw e;
                 }
             }
+            const stillCurrent = state.navToken === myNavToken;
             if (reply.file) {
                 hideLoading();
-                openPlayerForFile(reply.file, label || reply.text);
+                // Opening the player is disruptive on its own (it takes over the screen) - only
+                // do it if the user hasn't since navigated away from what they were doing.
+                if (stillCurrent) openPlayerForFile(reply.file, label || reply.text);
             } else {
-                renderBotReply(reply);
+                renderBotReply(reply, undefined, stillCurrent);
             }
         } catch (e) {
-            showToast(e.message, true);
+            if (state.navToken === myNavToken) showToast(e.message, true);
         } finally {
             hideLoading();
         }
@@ -357,7 +407,11 @@
     }
 
     // ---------- Rendering results ----------
-    function renderBotReply(reply, isFreshSearch) {
+    // forceView (default true): whether to switch the visible view to 'results' as part of
+    // this render. Callers whose triggering request may resolve after the user has already
+    // navigated elsewhere (see runSearch/clickButton's navToken check) pass false so a stale
+    // response updates state quietly instead of yanking the user back to a view they left.
+    function renderBotReply(reply, isFreshSearch, forceView = true) {
         state.currentMessageId = reply.messageId;
         state.currentButtonRows = reply.buttonRows || [];
         state.currentFilters = { season: null, language: null };
@@ -386,7 +440,7 @@
 
         renderResultsList();
         renderPagination();
-        showView('results');
+        if (forceView) showView('results');
     }
 
     function extractConfirmedTitle(text) {
@@ -996,15 +1050,26 @@
         const menu = document.createElement('div');
         menu.className = 'dropdown-menu hidden';
 
+        const title = item.cleanTitle || item.displayName;
+
+        const confirmDelete = async () => {
+            const ok = await confirmAction(`Delete "${title}"? This removes the downloaded file and can't be undone.`, 'Delete');
+            if (ok) await runLibraryAction(() => API.deleteFromLibrary(item.primaryLibraryId));
+        };
+        const confirmCancel = async () => {
+            const ok = await confirmAction(`Cancel downloading "${title}"? The partial download will be deleted.`, 'Cancel Download');
+            if (ok) await runLibraryAction(() => API.cancelDownload(item.primaryLibraryId));
+        };
+
         const actions = [];
         if (item.completed) {
-            actions.push(['Delete', () => runLibraryAction(() => API.deleteFromLibrary(item.primaryLibraryId))]);
+            actions.push(['Delete', confirmDelete]);
         } else if (item.paused) {
             actions.push(['Resume', () => runLibraryAction(() => API.resumeDownload(item.primaryLibraryId))]);
-            actions.push(['Cancel', () => runLibraryAction(() => API.cancelDownload(item.primaryLibraryId))]);
+            actions.push(['Cancel', confirmCancel]);
         } else {
             actions.push(['Pause', () => runLibraryAction(() => API.pauseDownload(item.primaryLibraryId))]);
-            actions.push(['Cancel', () => runLibraryAction(() => API.cancelDownload(item.primaryLibraryId))]);
+            actions.push(['Cancel', confirmCancel]);
         }
 
         actions.forEach(([label, handler]) => {
@@ -1158,6 +1223,7 @@
     const minimizedOverlay = el('minimizedOverlay');
     const minimizedTitle = el('minimizedTitle');
     const minimizedCloseBtn = el('minimizedCloseBtn');
+    const minimizedMaximizeBtn = el('minimizedMaximizeBtn');
 
     let isPlayerMinimized = false;
     let currentPlayingLibraryId = null;
@@ -1354,7 +1420,7 @@
     document.addEventListener('click', () => audioMenu.classList.add('hidden'));
 
     // ---------- Playback speed ----------
-    const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+    const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
     function buildSpeedMenu() {
         speedMenu.innerHTML = '';
@@ -1404,6 +1470,7 @@
         playerDock.classList.add('hidden');
         isPlayerMinimized = false;
         playerDock.classList.remove('minimized');
+        resetMinimizedPosition();
         setLocked(false);
         if (document.fullscreenElement) {
             document.exitFullscreen?.();
@@ -1420,7 +1487,18 @@
     function restorePlayer() {
         isPlayerMinimized = false;
         playerDock.classList.remove('minimized');
+        resetMinimizedPosition();
         playerDock.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Clears any inline left/top/right/bottom left over from dragging the minimized player, so
+    // the next time it's minimized it starts fresh at the CSS default (bottom-right) rather
+    // than wherever it was last dropped for a different file.
+    function resetMinimizedPosition() {
+        playerDock.style.left = '';
+        playerDock.style.top = '';
+        playerDock.style.right = '';
+        playerDock.style.bottom = '';
     }
 
     closePlayerBtn.addEventListener('click', closePlayer);
@@ -1429,7 +1507,63 @@
         e.stopPropagation();
         closePlayer();
     });
-    minimizedOverlay.addEventListener('click', restorePlayer);
+    minimizedMaximizeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        restorePlayer();
+    });
+
+    // ---------- Dragging the minimized player ----------
+    // Lets the user drag the floating mini-player anywhere on screen. Once dragged, its
+    // position switches from the CSS default (bottom-right) to explicit left/top pixel values
+    // that persist until the player is closed or dragged again - it does NOT restore on a
+    // plain tap anymore (that's what the center maximize button is for), so a tap can't be
+    // mistaken for the start of a drag.
+    let dragPointerId = null;
+    let dragStartX = 0, dragStartY = 0;
+    let dockStartX = 0, dockStartY = 0;
+    let dragMoved = false;
+    const DRAG_MOVEMENT_THRESHOLD_PX = 4;
+
+    minimizedOverlay.addEventListener('pointerdown', (e) => {
+        if (!isPlayerMinimized) return;
+        // Don't start a drag (and don't steal the pointer via setPointerCapture) when the press
+        // starts on a button inside the overlay - that would swallow the button's own click.
+        if (e.target.closest('button')) return;
+        dragPointerId = e.pointerId;
+        dragMoved = false;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        const rect = playerDock.getBoundingClientRect();
+        dockStartX = rect.left;
+        dockStartY = rect.top;
+        minimizedOverlay.setPointerCapture(dragPointerId);
+    });
+
+    minimizedOverlay.addEventListener('pointermove', (e) => {
+        if (dragPointerId === null || e.pointerId !== dragPointerId) return;
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        if (!dragMoved && Math.hypot(dx, dy) < DRAG_MOVEMENT_THRESHOLD_PX) return;
+        dragMoved = true;
+
+        const dockWidth = playerDock.offsetWidth;
+        const dockHeight = playerDock.offsetHeight;
+        const newLeft = clamp(dockStartX + dx, 0, window.innerWidth - dockWidth);
+        const newTop = clamp(dockStartY + dy, 0, window.innerHeight - dockHeight);
+
+        playerDock.style.left = newLeft + 'px';
+        playerDock.style.top = newTop + 'px';
+        playerDock.style.right = 'auto';
+        playerDock.style.bottom = 'auto';
+    });
+
+    function endDrag(e) {
+        if (dragPointerId === null || (e && e.pointerId !== dragPointerId)) return;
+        minimizedOverlay.releasePointerCapture(dragPointerId);
+        dragPointerId = null;
+    }
+    minimizedOverlay.addEventListener('pointerup', endDrag);
+    minimizedOverlay.addEventListener('pointercancel', endDrag);
 
     videoEl.addEventListener('waiting', () => bufferingSpinner.classList.remove('hidden'));
     videoEl.addEventListener('playing', () => bufferingSpinner.classList.add('hidden'));
@@ -1851,11 +1985,18 @@
         }
         searchInput.blur();
         searchInput.value = '';
+        // Dismiss a loading overlay left over from a search/click that's still in flight - the
+        // user has explicitly chosen to leave that screen, so blocking them with its spinner
+        // until that unrelated request resolves would trap them on a screen they just left.
+        hideLoading();
         showView('home');
         loadContinueWatching();
     });
 
-    libraryBtn.addEventListener('click', () => loadLibrary(true));
+    libraryBtn.addEventListener('click', () => {
+        hideLoading(); // see backBtn above - same reasoning
+        loadLibrary(true);
+    });
     clearRecentBtn.addEventListener('click', clearRecent);
 
     // ---------- Connection status ----------

@@ -629,12 +629,6 @@ main {
     font-weight: 600;
     color: #fff;
 }
-.speed-dropdown-menu {
-    top: auto;
-    bottom: calc(100% + 8px);
-    right: 0;
-    left: auto;
-}
 .dropdown-item.active { color: var(--accent); }
 
 .dropdown-menu {
@@ -660,6 +654,19 @@ main {
     font-size: 13px;
 }
 .dropdown-item:hover { background: var(--surface); }
+
+/* Opens upward, not downward - the speed button sits at the bottom of the player, so a
+   downward-opening menu (the .dropdown-menu default) would spill off the bottom edge. Placed
+   after .dropdown-menu so this override actually wins the "top" property (equal specificity,
+   source order decides). */
+.speed-dropdown-menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+    right: 0;
+    left: auto;
+    max-height: 60vh;
+    overflow-y: auto;
+}
 
 /* Loading overlay */
 .loading-overlay {
@@ -730,6 +737,56 @@ main {
 }
 .toast.error { border-color: var(--danger); color: #ffb4ae; }
 
+/* Confirmation dialog */
+.confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 20px;
+}
+.confirm-box {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    max-width: 340px;
+    width: 100%;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+}
+.confirm-message {
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 18px;
+}
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.confirm-btn {
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 500;
+}
+.confirm-btn-cancel {
+    background: var(--surface);
+    color: var(--text-muted);
+}
+.confirm-btn-cancel:hover { color: var(--text); }
+.confirm-btn-danger {
+    background: var(--danger);
+    color: #fff;
+}
+.confirm-btn-danger:hover { opacity: 0.9; }
+
 /* ---------- Player (docked inline, YouTube-style) ---------- */
 .player-dock {
     margin: -16px -16px 16px;
@@ -748,10 +805,12 @@ main {
     overflow: hidden;
 }
 
-/* Minimized: the dock leaves the page flow and becomes a small floating box that stays put
-   while the rest of the app (search/results/library) scrolls and is interactable underneath
-   it. The video keeps playing uninterrupted since it's the same <video> element, never
-   removed or reparented - only its container's position/size changes. */
+/* Minimized: the dock leaves the page flow and becomes a small floating box that can be
+   dragged anywhere on screen, staying put (at wherever it was last dropped) while the rest of
+   the app (search/results/library) scrolls and is interactable underneath it. The video keeps
+   playing uninterrupted since it's the same <video> element, never removed or reparented -
+   only its container's position/size changes. right/bottom below are just the INITIAL spot;
+   once dragged, app.js switches it to explicit left/top pixel values instead. */
 .player-dock.minimized {
     position: fixed;
     right: 12px;
@@ -764,7 +823,7 @@ main {
     border-radius: var(--radius-sm);
     overflow: hidden;
     box-shadow: 0 8px 28px rgba(0,0,0,0.55);
-    cursor: pointer;
+    touch-action: none; /* dragging handles its own movement - don't let the browser scroll/zoom underneath a drag */
 }
 .player-dock.minimized .player-video-wrap {
     aspect-ratio: 16 / 9;
@@ -783,11 +842,16 @@ main {
     position: absolute;
     inset: 0;
     z-index: 10;
+    flex-direction: column;
+    cursor: grab;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 40%, transparent 60%, rgba(0,0,0,0.4));
+}
+.minimized-overlay:active { cursor: grabbing; }
+.minimized-top-row {
+    display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 4px;
     padding: 6px 4px 6px 8px;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 40%, transparent 60%, rgba(0,0,0,0.4));
 }
 .minimized-title {
     color: #fff;
@@ -806,6 +870,24 @@ main {
     background: rgba(0,0,0,0.35);
 }
 .minimized-close svg { width: 14px; height: 14px; }
+
+.minimized-maximize-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.45);
+    border: none;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.minimized-maximize-btn svg { width: 18px; height: 18px; }
 
 /* When the video wrap itself goes fullscreen (native Fullscreen API), fill the screen
    and drop the aspect-ratio constraint so it doesn't letterbox oddly. */
